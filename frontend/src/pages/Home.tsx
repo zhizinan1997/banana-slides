@@ -1,19 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, FileText, FileEdit } from 'lucide-react';
-import { Button, Input, Textarea, Card, useToast } from '@/components/shared';
+import { Button, Textarea, Card, useToast } from '@/components/shared';
+import { TemplateSelector } from '@/components/shared/TemplateSelector';
 import { useProjectStore } from '@/store/useProjectStore';
-import * as api from '@/api/endpoints';
-import { getImageUrl } from '@/api/client';
-import type { UserTemplate } from '@/api/endpoints';
 
 type CreationType = 'idea' | 'outline' | 'description';
-
-const templates = [
-  { id: '1', name: '简约商务', preview: '/templates/template_s.png' },
-  { id: '2', name: '活力色彩', preview: '/templates/template_g.png' },
-  { id: '3', name: '科技蓝', preview: '/templates/template_b.png' },
-];
 
 export const Home: React.FC = () => {
   const navigate = useNavigate();
@@ -25,13 +17,6 @@ export const Home: React.FC = () => {
   const [selectedTemplate, setSelectedTemplate] = useState<File | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [selectedPresetTemplateId, setSelectedPresetTemplateId] = useState<string | null>(null);
-  const [userTemplates, setUserTemplates] = useState<UserTemplate[]>([]);
-  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
-
-  // 加载用户模板列表
-  useEffect(() => {
-    loadUserTemplates();
-  }, []);
 
   const tabConfig = {
     idea: {
@@ -48,75 +33,38 @@ export const Home: React.FC = () => {
     },
     description: {
       icon: <FileEdit size={20} />,
-      label: '从描述生成（未完善，但可手动编辑描述卡片）',
-      placeholder: '粘贴你的详细页面描述...\n\n例如：\n第 1 页\n标题：人工智能的诞生\n内容：1950 年，图灵提出"图灵测试"...\n...',
-      description: '已有完整描述？直接生成图片',
+      label: '从描述生成',
+      placeholder: '粘贴你的完整页面描述...\n\n例如：\n第 1 页\n标题：人工智能的诞生\n内容：1950 年，图灵提出"图灵测试"...\n\n第 2 页\n标题：AI 的发展历程\n内容：1950年代：符号主义...\n...',
+      description: '已有完整描述？AI 将自动解析出大纲并切分为每页描述，直接生成图片',
     },
   };
 
-  const loadUserTemplates = async () => {
-    setIsLoadingTemplates(true);
-    try {
-      const response = await api.listUserTemplates();
-      if (response.data?.templates) {
-        setUserTemplates(response.data.templates);
-      }
-    } catch (error: any) {
-      console.error('加载用户模板失败:', error);
-      // 静默失败，不影响主流程
-    } finally {
-      setIsLoadingTemplates(false);
+  const handleTemplateSelect = async (templateFile: File | null, templateId?: string) => {
+    // 总是设置文件（如果提供）
+    if (templateFile) {
+      setSelectedTemplate(templateFile);
     }
-  };
-
-  const handleTemplateUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      try {
-        // 上传到后端
-        const response = await api.uploadUserTemplate(file);
-        if (response.data) {
-          const template = response.data;
-          setUserTemplates(prev => [template, ...prev]);
-          setSelectedTemplateId(template.template_id);
-          setSelectedTemplate(null); // 清空本地文件选择
-          show({ message: '模板上传成功', type: 'success' });
-        }
-      } catch (error: any) {
-        console.error('上传模板失败:', error);
-        show({ message: '模板上传失败: ' + (error.message || '未知错误'), type: 'error' });
-      }
-    }
-  };
-
-  const handleSelectUserTemplate = (template: UserTemplate) => {
-    setSelectedTemplateId(template.template_id);
-    setSelectedPresetTemplateId(null); // 清空预设模板选择
-    setSelectedTemplate(null); // 清空本地文件选择
-  };
-
-  const handleSelectPresetTemplate = async (templateId: string, preview: string) => {
-    if (!preview) return; // 如果没有预览图，不处理
     
-    setSelectedPresetTemplateId(templateId);
-    setSelectedTemplateId(null); // 清空用户模板选择
-    
-    // 从 public 文件夹加载图片并转换为 File 对象
-    try {
-      const response = await fetch(preview);
-      const blob = await response.blob();
-      const file = new File([blob], preview.split('/').pop() || 'template.png', { type: blob.type });
-      setSelectedTemplate(file);
-    } catch (error) {
-      console.error('加载预设模板失败:', error);
-      show({ message: '加载模板失败', type: 'error' });
+    // 处理模板 ID
+    if (templateId) {
+      // 判断是用户模板还是预设模板
+      // 预设模板 ID 通常是 '1', '2', '3' 等短字符串
+      // 用户模板 ID 通常较长（UUID 格式）
+      if (templateId.length <= 3 && /^\d+$/.test(templateId)) {
+        // 预设模板
+        setSelectedPresetTemplateId(templateId);
+        setSelectedTemplateId(null);
+      } else {
+        // 用户模板
+        setSelectedTemplateId(templateId);
+        setSelectedPresetTemplateId(null);
+      }
+    } else {
+      // 如果没有 templateId，可能是直接上传的文件
+      // 清空所有选择状态
+      setSelectedTemplateId(null);
+      setSelectedPresetTemplateId(null);
     }
-  };
-
-  const handleRemoveTemplate = () => {
-    setSelectedTemplateId(null);
-    setSelectedPresetTemplateId(null);
-    setSelectedTemplate(null);
   };
 
   const handleSubmit = async () => {
@@ -126,29 +74,8 @@ export const Home: React.FC = () => {
     }
 
     try {
-      // 如果有选中的用户模板，需要先获取模板文件
-      let templateFile: File | undefined = selectedTemplate || undefined;
-      
-      if (selectedTemplateId && !templateFile) {
-        // 从用户模板创建 File 对象
-        // 注意：这里我们需要从 URL 获取图片并转换为 File
-        // 但为了简化，我们可以先使用 selectedTemplateId 来标识
-        // 实际上，在创建项目时，我们可以通过模板 ID 来关联
-        // 但目前的 initializeProject 只接受 File，所以我们需要获取模板图片
-        try {
-          const template = userTemplates.find(t => t.template_id === selectedTemplateId);
-          if (template) {
-            const imageUrl = getImageUrl(template.template_image_url);
-            const response = await fetch(imageUrl);
-            const blob = await response.blob();
-            templateFile = new File([blob], 'template.png', { type: blob.type });
-          }
-        } catch (error) {
-          console.warn('获取模板文件失败:', error);
-        }
-      }
-
-      await initializeProject(activeTab, content, templateFile);
+      // TemplateSelector 已经处理了模板选择，selectedTemplate 应该已经包含文件
+      await initializeProject(activeTab, content, selectedTemplate || undefined);
       
       // 根据类型跳转到不同页面
       const projectId = localStorage.getItem('currentProjectId');
@@ -159,7 +86,8 @@ export const Home: React.FC = () => {
       
       if (activeTab === 'idea' || activeTab === 'outline') {
         navigate(`/project/${projectId}/outline`);
-      } else {
+      } else if (activeTab === 'description') {
+        // 从描述生成：直接跳到描述生成页（因为已经自动生成了大纲和描述）
         navigate(`/project/${projectId}/detail`);
       }
     } catch (error: any) {
@@ -174,9 +102,11 @@ export const Home: React.FC = () => {
       <nav className="h-16 bg-white shadow-sm border-b border-gray-100">
         <div className="max-w-7xl mx-auto px-4 h-full flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-10 h-10 bg-gradient-to-br from-banana-500 to-banana-600 rounded-lg flex items-center justify-center text-2xl">
-              🍌
-            </div>
+            <img
+              src="/logo.jpg"
+              alt="蕉幻 Banana Slides Logo"
+              className="w-12 h-12 rounded-lg object-cover object-center"
+            />
             <span className="text-xl font-bold text-gray-900">蕉幻</span>
           </div>
           <div className="flex items-center gap-4">
@@ -242,103 +172,12 @@ export const Home: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
               🎨 选择风格模板
             </h3>
-            
-            {/* 用户已保存的模板 */}
-            {userTemplates.length > 0 && (
-              <div className="mb-4">
-                <h4 className="text-sm font-medium text-gray-700 mb-2">我的模板</h4>
-                <div className="grid grid-cols-4 gap-4 mb-4">
-                  {userTemplates.map((template) => (
-                    <div
-                      key={template.template_id}
-                      onClick={() => handleSelectUserTemplate(template)}
-                      className={`aspect-[4/3] rounded-lg border-2 cursor-pointer transition-all relative overflow-hidden ${
-                        selectedTemplateId === template.template_id
-                          ? 'border-banana-500 ring-2 ring-banana-200'
-                          : 'border-gray-200 hover:border-banana-300'
-                      }`}
-                    >
-                      <img
-                        src={getImageUrl(template.template_image_url)}
-                        alt={template.name || 'Template'}
-                        className="absolute inset-0 w-full h-full object-cover"
-                      />
-                      {selectedTemplateId === template.template_id && (
-                        <div className="absolute inset-0 bg-banana-500 bg-opacity-20 flex items-center justify-center">
-                          <span className="text-white font-semibold text-sm">已选择</span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-4 gap-4">
-              {/* 预设模板 */}
-              {templates.map((template) => (
-                <div
-                  key={template.id}
-                  onClick={() => template.preview && handleSelectPresetTemplate(template.id, template.preview)}
-                  className={`aspect-[4/3] rounded-lg border-2 cursor-pointer transition-all bg-gray-100 flex items-center justify-center relative overflow-hidden ${
-                    selectedPresetTemplateId === template.id
-                      ? 'border-banana-500 ring-2 ring-banana-200'
-                      : 'border-gray-200 hover:border-banana-500'
-                  }`}
-                >
-                  {template.preview ? (
-                    <>
-                      <img
-                        src={template.preview}
-                        alt={template.name}
-                        className="absolute inset-0 w-full h-full object-cover"
-                      />
-                      {selectedPresetTemplateId === template.id && (
-                        <div className="absolute inset-0 bg-banana-500 bg-opacity-20 flex items-center justify-center">
-                          <span className="text-white font-semibold text-sm">已选择</span>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <span className="text-sm text-gray-500">{template.name}</span>
-                  )}
-                </div>
-              ))}
-
-              {/* 上传新模板 */}
-              <label className="aspect-[4/3] rounded-lg border-2 border-dashed border-gray-300 hover:border-banana-500 cursor-pointer transition-all flex flex-col items-center justify-center gap-2 relative overflow-hidden">
-                <span className="text-2xl">+</span>
-                <span className="text-sm text-gray-500">上传模板</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleTemplateUpload}
-                  className="hidden"
-                  disabled={isLoadingTemplates}
-                />
-              </label>
-            </div>
-
-            {/* 显示已选择的模板提示 */}
-            {(selectedTemplateId || selectedPresetTemplateId) && (
-              <div className="mt-4 flex items-center justify-between p-3 bg-banana-50 rounded-lg">
-                <span className="text-sm text-gray-700">
-                  已选择模板: {
-                    selectedTemplateId 
-                      ? userTemplates.find(t => t.template_id === selectedTemplateId)?.name || '未命名模板'
-                      : templates.find(t => t.id === selectedPresetTemplateId)?.name || '预设模板'
-                  }
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleRemoveTemplate}
-                  className="text-gray-600 hover:text-gray-900"
-                >
-                  取消选择
-                </Button>
-              </div>
-            )}
+            <TemplateSelector
+              onSelect={handleTemplateSelect}
+              selectedTemplateId={selectedTemplateId}
+              selectedPresetTemplateId={selectedPresetTemplateId}
+              showUpload={true} // 在主页上传的模板保存到用户模板库
+            />
           </div>
 
           {/* 提交按钮 */}

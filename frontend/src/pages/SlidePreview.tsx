@@ -15,10 +15,11 @@ import {
   Image as ImageIcon,
 } from 'lucide-react';
 import { Button, Loading, Modal, Textarea, useToast, useConfirm } from '@/components/shared';
+import { TemplateSelector } from '@/components/shared/TemplateSelector';
 import { SlideCard } from '@/components/preview/SlideCard';
 import { useProjectStore } from '@/store/useProjectStore';
 import { getImageUrl } from '@/api/client';
-import { getPageImageVersions, setCurrentImageVersion } from '@/api/endpoints';
+import { getPageImageVersions, setCurrentImageVersion, updateProject, uploadTemplate } from '@/api/endpoints';
 import type { ImageVersion } from '@/types';
 
 export const SlidePreview: React.FC = () => {
@@ -42,6 +43,7 @@ export const SlidePreview: React.FC = () => {
 
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [editPrompt, setEditPrompt] = useState('');
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isOutlineExpanded, setIsOutlineExpanded] = useState(false);
@@ -49,6 +51,9 @@ export const SlidePreview: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [imageVersions, setImageVersions] = useState<ImageVersion[]>([]);
   const [showVersionMenu, setShowVersionMenu] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [selectedPresetTemplateId, setSelectedPresetTemplateId] = useState<string | null>(null);
+  const [isUploadingTemplate, setIsUploadingTemplate] = useState(false);
   const [selectedContextImages, setSelectedContextImages] = useState<{
     useTemplate: boolean;
     descImageUrls: string[];
@@ -58,6 +63,9 @@ export const SlidePreview: React.FC = () => {
     descImageUrls: [],
     uploadedFiles: [],
   });
+  const [extraRequirements, setExtraRequirements] = useState<string>('');
+  const [isSavingRequirements, setIsSavingRequirements] = useState(false);
+  const [isExtraRequirementsExpanded, setIsExtraRequirementsExpanded] = useState(false);
   const { show, ToastContainer } = useToast();
   const { confirm, ConfirmDialog } = useConfirm();
 
@@ -68,6 +76,13 @@ export const SlidePreview: React.FC = () => {
       syncProject(projectId);
     }
   }, [projectId, currentProject, syncProject]);
+
+  // 当项目加载后，初始化额外要求
+  useEffect(() => {
+    if (currentProject) {
+      setExtraRequirements(currentProject.extra_requirements || '');
+    }
+  }, [currentProject]);
 
   // 加载当前页面的历史版本
   useEffect(() => {
@@ -137,9 +152,40 @@ export const SlidePreview: React.FC = () => {
       await generatePageImage(page.id, hasImage);
       show({ message: '已开始生成图片，请稍候...', type: 'success' });
     } catch (error: any) {
-      show({ 
-        message: `生成失败: ${error.message || '未知错误'}`, 
-        type: 'error' 
+      // 提取后端返回的更具体错误信息
+      let errorMessage = '生成失败';
+      const respData = error?.response?.data;
+
+      if (respData) {
+        if (respData.error?.message) {
+          errorMessage = respData.error.message;
+        } else if (respData.message) {
+          errorMessage = respData.message;
+        } else if (respData.error) {
+          errorMessage =
+            typeof respData.error === 'string'
+              ? respData.error
+              : respData.error.message || errorMessage;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      // 针对常见错误做更友好的提示
+      if (errorMessage.includes('No template image found')) {
+        errorMessage =
+          '当前项目还没有模板，请先点击页面顶部的“更换模板”按钮，选择或上传一张模板图片后再生成。';
+      } else if (errorMessage.includes('Page must have description content')) {
+        errorMessage =
+          '该页面还没有描述内容，请先在“编辑页面描述”步骤为此页生成或填写描述。';
+      } else if (errorMessage.includes('Image already exists')) {
+        errorMessage =
+          '该页面已经有图片，如需重新生成，请在生成时选择“重新生成”或稍后重试。';
+      }
+
+      show({
+        message: errorMessage,
+        type: 'error',
       });
     }
   };
@@ -265,6 +311,69 @@ export const SlidePreview: React.FC = () => {
     }
   };
 
+  const handleSaveExtraRequirements = async () => {
+    if (!currentProject || !projectId) return;
+    
+    setIsSavingRequirements(true);
+    try {
+      await updateProject(projectId, { extra_requirements: extraRequirements || '' });
+      // 更新本地项目状态
+      await syncProject(projectId);
+      show({ message: '额外要求已保存', type: 'success' });
+    } catch (error: any) {
+      show({ 
+        message: `保存失败: ${error.message || '未知错误'}`, 
+        type: 'error' 
+      });
+    } finally {
+      setIsSavingRequirements(false);
+    }
+  };
+
+  const handleTemplateSelect = async (templateFile: File | null, templateId?: string) => {
+    if (!projectId) return;
+    
+    // 如果传入了 templateId 但没有 templateFile，说明是用户模板，需要先获取文件
+    if (templateId && !templateFile) {
+      // 这种情况不应该发生，因为 handleSelectUserTemplate 会先获取文件
+      return;
+    }
+    
+    if (!templateFile) {
+      // 如果没有文件也没有 ID，可能是取消选择
+      return;
+    }
+    
+    setIsUploadingTemplate(true);
+    try {
+      await uploadTemplate(projectId, templateFile);
+      await syncProject(projectId);
+      setIsTemplateModalOpen(false);
+      show({ message: '模板更换成功', type: 'success' });
+      
+      // 更新选择状态
+      if (templateId) {
+        // 判断是用户模板还是预设模板
+        if (templateId.startsWith('user-') || templateId.length > 10) {
+          // 用户模板 ID 通常较长
+          setSelectedTemplateId(templateId);
+          setSelectedPresetTemplateId(null);
+        } else {
+          // 预设模板 ID 通常是 '1', '2', '3' 等
+          setSelectedPresetTemplateId(templateId);
+          setSelectedTemplateId(null);
+        }
+      }
+    } catch (error: any) {
+      show({ 
+        message: `更换模板失败: ${error.message || '未知错误'}`, 
+        type: 'error' 
+      });
+    } finally {
+      setIsUploadingTemplate(false);
+    }
+  };
+
   if (!currentProject) {
     return <Loading fullscreen message="加载项目中..." />;
   }
@@ -324,6 +433,14 @@ export const SlidePreview: React.FC = () => {
         </div>
         <div className="flex items-center gap-3">
           <Button
+            variant="ghost"
+            size="sm"
+            icon={<Upload size={18} />}
+            onClick={() => setIsTemplateModalOpen(true)}
+          >
+            更换模板
+          </Button>
+          <Button
             variant="secondary"
             size="sm"
             icon={<ArrowLeft size={18} />}
@@ -374,7 +491,7 @@ export const SlidePreview: React.FC = () => {
       <div className="flex-1 flex overflow-hidden min-w-0 min-h-0">
         {/* 左侧：缩略图列表 */}
         <aside className="w-80 bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
-          <div className="p-4 border-b border-gray-200 flex-shrink-0">
+          <div className="p-4 border-b border-gray-200 flex-shrink-0 space-y-3">
             <Button
               variant="primary"
               icon={<Sparkles size={18} />}
@@ -383,6 +500,42 @@ export const SlidePreview: React.FC = () => {
             >
               批量生成图片 ({currentProject.pages.length})
             </Button>
+            
+            {/* 额外要求 */}
+            <div className="border-t border-gray-200 pt-3">
+              <button
+                onClick={() => setIsExtraRequirementsExpanded(!isExtraRequirementsExpanded)}
+                className="w-full flex items-center justify-between text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
+              >
+                <span>额外要求</span>
+                {isExtraRequirementsExpanded ? (
+                  <ChevronUp size={16} />
+                ) : (
+                  <ChevronDown size={16} />
+                )}
+              </button>
+              
+              {isExtraRequirementsExpanded && (
+                <div className="mt-3 space-y-2">
+                  <Textarea
+                    value={extraRequirements}
+                    onChange={(e) => setExtraRequirements(e.target.value)}
+                    placeholder="例如：使用紧凑的布局，顶部展示一级大纲标题，加入更丰富的PPT插图..."
+                    rows={3}
+                    className="text-sm"
+                  />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleSaveExtraRequirements}
+                    disabled={isSavingRequirements}
+                    className="w-full"
+                  >
+                    {isSavingRequirements ? '保存中...' : '保存'}
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
           
           <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
@@ -439,7 +592,7 @@ export const SlidePreview: React.FC = () => {
                     ) : (
                       <div className="w-full h-full flex items-center justify-center bg-gray-100">
                         <div className="text-center">
-                          <div className="text-6xl mb-4">🖼️</div>
+                          <div className="text-6xl mb-4">🍌</div>
                           <p className="text-gray-500 mb-4">
                             {selectedPage?.id && pageGeneratingTasks[selectedPage.id]
                               ? '正在生成中...'
@@ -779,6 +932,40 @@ export const SlidePreview: React.FC = () => {
       </Modal>
       <ToastContainer />
       {ConfirmDialog}
+      
+      {/* 模板选择 Modal */}
+      <Modal
+        isOpen={isTemplateModalOpen}
+        onClose={() => setIsTemplateModalOpen(false)}
+        title="更换模板"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600 mb-4">
+            选择一个新的模板将应用到所有页面的图片生成。你可以选择预设模板、已有模板或上传新模板。
+          </p>
+          <TemplateSelector
+            onSelect={handleTemplateSelect}
+            selectedTemplateId={selectedTemplateId}
+            selectedPresetTemplateId={selectedPresetTemplateId}
+            showUpload={false} // 在预览页面上传的模板直接应用到项目，不上传到用户模板库
+          />
+          {isUploadingTemplate && (
+            <div className="text-center py-2 text-sm text-gray-500">
+              正在上传模板...
+            </div>
+          )}
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <Button
+              variant="ghost"
+              onClick={() => setIsTemplateModalOpen(false)}
+              disabled={isUploadingTemplate}
+            >
+              关闭
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

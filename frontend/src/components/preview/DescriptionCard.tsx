@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Edit2, RefreshCw } from 'lucide-react';
-import { Card, StatusBadge, Button, Modal, Textarea } from '@/components/shared';
+import { Card, StatusBadge, Button, Modal, Textarea, Skeleton } from '@/components/shared';
 import type { Page } from '@/types';
 
 interface DescriptionCardProps {
@@ -8,6 +8,7 @@ interface DescriptionCardProps {
   index: number;
   onUpdate: (data: Partial<Page>) => void;
   onRegenerate: () => void;
+  isGenerating?: boolean;
 }
 
 export const DescriptionCard: React.FC<DescriptionCardProps> = ({
@@ -15,6 +16,7 @@ export const DescriptionCard: React.FC<DescriptionCardProps> = ({
   index,
   onUpdate,
   onRegenerate,
+  isGenerating = false,
 }) => {
   // 后端只返回纯文本，从 description_content.text 获取
   const descContent = page.description_content;
@@ -22,6 +24,8 @@ export const DescriptionCard: React.FC<DescriptionCardProps> = ({
   
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
+  
+  const generating = isGenerating || page.status === 'GENERATING';
 
   const handleEdit = () => {
     // 在打开编辑对话框时，从当前的 page 获取最新值
@@ -60,7 +64,16 @@ export const DescriptionCard: React.FC<DescriptionCardProps> = ({
 
         {/* 内容 */}
         <div className="p-4 flex-1">
-          {text ? (
+          {generating ? (
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+              <div className="text-center py-4 text-gray-500 text-sm">
+                正在生成描述...
+              </div>
+            </div>
+          ) : text ? (
             <div className="text-sm text-gray-700 whitespace-pre-wrap">
               {text}
             </div>
@@ -79,17 +92,18 @@ export const DescriptionCard: React.FC<DescriptionCardProps> = ({
             size="sm"
             icon={<Edit2 size={16} />}
             onClick={handleEdit}
-            disabled={!page.description_content}
+            disabled={generating}
           >
             编辑
           </Button>
           <Button
             variant="ghost"
             size="sm"
-            icon={<RefreshCw size={16} />}
+            icon={<RefreshCw size={16} className={generating ? 'animate-spin' : ''} />}
             onClick={onRegenerate}
+            disabled={generating}
           >
-            重新生成
+            {generating ? '生成中...' : '重新生成'}
           </Button>
         </div>
       </Card>

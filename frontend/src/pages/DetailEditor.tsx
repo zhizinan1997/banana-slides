@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Sparkles } from 'lucide-react';
-import { Button, Loading, useToast, useConfirm, Textarea } from '@/components/shared';
+import { Button, Loading, useToast, useConfirm } from '@/components/shared';
 import { DescriptionCard } from '@/components/preview/DescriptionCard';
 import { useProjectStore } from '@/store/useProjectStore';
-import { updateProject } from '@/api/endpoints';
 
 export const DetailEditor: React.FC = () => {
   const navigate = useNavigate();
@@ -17,28 +16,26 @@ export const DetailEditor: React.FC = () => {
     updatePageLocal,
     generateDescriptions,
     generatePageDescription,
-    isGlobalLoading,
-    taskProgress,
+    pageDescriptionGeneratingTasks,
   } = useProjectStore();
   const { show, ToastContainer } = useToast();
   const { confirm, ConfirmDialog } = useConfirm();
-  const [extraRequirements, setExtraRequirements] = useState<string>('');
-  const [isSavingRequirements, setIsSavingRequirements] = useState(false);
 
   // 加载项目数据
   useEffect(() => {
     if (projectId && (!currentProject || currentProject.id !== projectId)) {
       // 直接使用 projectId 同步项目数据
       syncProject(projectId);
+    } else if (projectId && currentProject && currentProject.id === projectId) {
+      // 如果项目已存在，也同步一次以确保数据是最新的（特别是从描述生成后）
+      // 但只在首次加载时同步，避免频繁请求
+      const shouldSync = !currentProject.pages.some(p => p.description_content);
+      if (shouldSync) {
+        syncProject(projectId);
+      }
     }
-  }, [projectId, currentProject, syncProject]);
+  }, [projectId, currentProject?.id]); // 只在 projectId 或项目ID变化时更新
 
-  // 当项目加载后，初始化额外要求
-  useEffect(() => {
-    if (currentProject) {
-      setExtraRequirements(currentProject.extra_requirements || '');
-    }
-  }, [currentProject]);
 
   const handleGenerateAll = async () => {
     const hasDescriptions = currentProject?.pages.some(
@@ -97,37 +94,9 @@ export const DetailEditor: React.FC = () => {
     }
   };
 
-  const handleSaveExtraRequirements = async () => {
-    if (!currentProject || !projectId) return;
-    
-    setIsSavingRequirements(true);
-    try {
-      await updateProject(projectId, { extra_requirements: extraRequirements || '' });
-      // 更新本地项目状态
-      await syncProject(projectId);
-      show({ message: '额外要求已保存', type: 'success' });
-    } catch (error: any) {
-      show({ 
-        message: `保存失败: ${error.message || '未知错误'}`, 
-        type: 'error' 
-      });
-    } finally {
-      setIsSavingRequirements(false);
-    }
-  };
 
   if (!currentProject) {
     return <Loading fullscreen message="加载项目中..." />;
-  }
-
-  if (isGlobalLoading) {
-    return (
-      <Loading
-        fullscreen
-        message="生成页面描述中..."
-        progress={taskProgress || undefined}
-      />
-    );
   }
 
   const hasAllDescriptions = currentProject.pages.every(
@@ -181,33 +150,6 @@ export const DetailEditor: React.FC = () => {
         </div>
       </header>
 
-      {/* 额外要求输入框 */}
-      <div className="bg-banana-50 border-b border-banana-100 px-6 py-4">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-start gap-4">
-            <div className="flex-1">
-              <Textarea
-                label="额外要求（将应用到每个页面的AI提示词）"
-                value={extraRequirements}
-                onChange={(e) => setExtraRequirements(e.target.value)}
-                placeholder="例如：使用简洁的设计风格，文字要清晰易读，配色要专业..."
-                rows={3}
-              />
-            </div>
-            <div className="pt-7">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={handleSaveExtraRequirements}
-                disabled={isSavingRequirements}
-              >
-                {isSavingRequirements ? '保存中...' : '保存'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* 操作栏 */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
@@ -257,6 +199,7 @@ export const DetailEditor: React.FC = () => {
                     index={index}
                     onUpdate={(data) => updatePageLocal(pageId, data)}
                     onRegenerate={() => handleRegeneratePage(pageId)}
+                    isGenerating={pageId ? !!pageDescriptionGeneratingTasks[pageId] : false}
                   />
                 );
               })}

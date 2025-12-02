@@ -112,6 +112,17 @@ export const generateOutline = async (projectId: string): Promise<ApiResponse> =
 // ===== 描述生成 =====
 
 /**
+ * 从描述文本生成大纲和页面描述（一次性完成）
+ */
+export const generateFromDescription = async (projectId: string, descriptionText?: string): Promise<ApiResponse> => {
+  const response = await apiClient.post<ApiResponse>(
+    `/api/projects/${projectId}/generate/from-description`,
+    descriptionText ? { description_text: descriptionText } : {}
+  );
+  return response.data;
+};
+
+/**
  * 批量生成描述
  */
 export const generateDescriptions = async (projectId: string): Promise<ApiResponse> => {

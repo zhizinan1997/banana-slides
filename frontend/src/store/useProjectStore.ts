@@ -12,6 +12,8 @@ interface ProjectState {
   error: string | null;
   // 每个页面的生成任务ID映射 (pageId -> taskId)
   pageGeneratingTasks: Record<string, string>;
+  // 每个页面的描述生成状态 (pageId -> boolean)
+  pageDescriptionGeneratingTasks: Record<string, boolean>;
 
   // Actions
   setCurrentProject: (project: Project | null) => void;
@@ -35,6 +37,7 @@ interface ProjectState {
   
   // 生成操作
   generateOutline: () => Promise<void>;
+  generateFromDescription: () => Promise<void>;
   generateDescriptions: () => Promise<void>;
   generatePageDescription: (pageId: string) => Promise<void>;
   generateImages: () => Promise<void>;
@@ -90,6 +93,7 @@ const debouncedUpdatePage = debounce(
   taskProgress: null,
   error: null,
   pageGeneratingTasks: {},
+  pageDescriptionGeneratingTasks: {},
 
   // Setters
   setCurrentProject: (project) => set({ currentProject: project }),
@@ -128,7 +132,18 @@ const debouncedUpdatePage = debounce(
         }
       }
       
-      // 3. 获取完整项目信息
+      // 3. 如果是 description 类型，自动生成大纲和页面描述
+      if (type === 'description') {
+        try {
+          await api.generateFromDescription(projectId, content);
+          console.log('[初始化项目] 从描述生成大纲和页面描述完成');
+        } catch (error) {
+          console.error('[初始化项目] 从描述生成失败:', error);
+          // 继续执行，让用户可以手动操作
+        }
+      }
+      
+      // 4. 获取完整项目信息
       const projectResponse = await api.getProject(projectId);
       const project = normalizeProject(projectResponse.data);
       
@@ -168,6 +183,11 @@ const debouncedUpdatePage = debounce(
       const response = await api.getProject(targetProjectId);
       if (response.data) {
         const project = normalizeProject(response.data);
+        console.log('[syncProject] 同步项目数据:', {
+          projectId: project.id,
+          pagesCount: project.pages?.length || 0,
+          status: project.status
+        });
         set({ currentProject: project });
         // 确保 localStorage 中保存了项目ID
         localStorage.setItem('currentProjectId', project.id!);
@@ -402,10 +422,17 @@ const debouncedUpdatePage = debounce(
 
     set({ isGlobalLoading: true, error: null });
     try {
-      await api.generateOutline(currentProject.id!);
-      // 刷新项目数据
+      const response = await api.generateOutline(currentProject.id!);
+      console.log('[生成大纲] API响应:', response);
+      
+      // 刷新项目数据，确保获取最新的大纲页面
       await get().syncProject();
+      
+      // 再次确认数据已更新
+      const { currentProject: updatedProject } = get();
+      console.log('[生成大纲] 刷新后的项目:', updatedProject?.pages.length, '个页面');
     } catch (error: any) {
+      console.error('[生成大纲] 错误:', error);
       set({ error: error.message || '生成大纲失败' });
       throw error;
     } finally {
@@ -413,30 +440,182 @@ const debouncedUpdatePage = debounce(
     }
   },
 
-  // 生成描述
-  generateDescriptions: async () => {
-    const { currentProject, startAsyncTask } = get();
-    if (!currentProject) return;
-
-    await startAsyncTask(() => api.generateDescriptions(currentProject.id));
-  },
-
-  // 生成单页描述
-  generatePageDescription: async (pageId: string) => {
+  // 从描述生成大纲和页面描述（同步操作）
+  generateFromDescription: async () => {
     const { currentProject } = get();
     if (!currentProject) return;
 
     set({ isGlobalLoading: true, error: null });
     try {
+      const response = await api.generateFromDescription(currentProject.id!);
+      console.log('[从描述生成] API响应:', response);
+      
+      // 刷新项目数据，确保获取最新的大纲和描述
+      await get().syncProject();
+      
+      // 再次确认数据已更新
+      const { currentProject: updatedProject } = get();
+      console.log('[从描述生成] 刷新后的项目:', updatedProject?.pages.length, '个页面');
+    } catch (error: any) {
+      console.error('[从描述生成] 错误:', error);
+      set({ error: error.message || '从描述生成失败' });
+      throw error;
+    } finally {
+      set({ isGlobalLoading: false });
+    }
+  },
+
+  // 生成描述（使用异步任务，实时显示进度）
+  generateDescriptions: async () => {
+    const { currentProject } = get();
+    if (!currentProject || !currentProject.id) return;
+
+    const pages = currentProject.pages.filter((p) => p.id);
+    if (pages.length === 0) return;
+
+    set({ error: null });
+    
+    // 标记所有页面为生成中
+    const initialTasks: Record<string, boolean> = {};
+    pages.forEach((page) => {
+      if (page.id) {
+        initialTasks[page.id] = true;
+      }
+    });
+    set({ pageDescriptionGeneratingTasks: initialTasks });
+    
+    try {
+      // 调用批量生成接口，返回 task_id
+      const projectId = currentProject.id;
+      if (!projectId) {
+        throw new Error('项目ID不存在');
+      }
+      
+      const response = await api.generateDescriptions(projectId);
+      const taskId = response.data?.task_id;
+      
+      if (!taskId) {
+        throw new Error('未收到任务ID');
+      }
+      
+      // 启动轮询任务状态和定期同步项目数据
+      const pollAndSync = async () => {
+        try {
+          // 轮询任务状态
+          const taskResponse = await api.getTaskStatus(projectId, taskId);
+          const task = taskResponse.data;
+          
+          if (task) {
+            // 更新进度
+            if (task.progress) {
+              set({ taskProgress: task.progress });
+            }
+            
+            // 同步项目数据以获取最新的页面状态
+            await get().syncProject();
+            
+            // 根据项目数据更新每个页面的生成状态
+            const { currentProject: updatedProject } = get();
+            if (updatedProject) {
+              const updatedTasks: Record<string, boolean> = {};
+              updatedProject.pages.forEach((page) => {
+                if (page.id) {
+                  // 如果页面已有描述，说明已完成
+                  const hasDescription = !!page.description_content;
+                  // 如果状态是 GENERATING 或还没有描述，说明还在生成中
+                  const isGenerating = page.status === 'GENERATING' || 
+                                      (!hasDescription && initialTasks[page.id]);
+                  if (isGenerating) {
+                    updatedTasks[page.id] = true;
+                  }
+                }
+              });
+              set({ pageDescriptionGeneratingTasks: updatedTasks });
+            }
+            
+            // 检查任务是否完成
+            if (task.status === 'COMPLETED') {
+              // 清除所有生成状态
+              set({ 
+                pageDescriptionGeneratingTasks: {},
+                taskProgress: null,
+                activeTaskId: null
+              });
+              // 最后同步一次确保数据最新
+              await get().syncProject();
+            } else if (task.status === 'FAILED') {
+              // 任务失败
+              set({ 
+                pageDescriptionGeneratingTasks: {},
+                taskProgress: null,
+                activeTaskId: null,
+                error: task.error_message || task.error || '生成描述失败'
+              });
+            } else if (task.status === 'PENDING' || task.status === 'PROCESSING') {
+              // 继续轮询
+              setTimeout(pollAndSync, 2000);
+            }
+          }
+        } catch (error: any) {
+          console.error('[生成描述] 轮询错误:', error);
+          // 即使轮询出错，也继续尝试同步项目数据
+          await get().syncProject();
+          setTimeout(pollAndSync, 2000);
+        }
+      };
+      
+      // 开始轮询
+      setTimeout(pollAndSync, 2000);
+      
+    } catch (error: any) {
+      console.error('[生成描述] 启动任务失败:', error);
+      set({ 
+        pageDescriptionGeneratingTasks: {},
+        error: error.message || '启动生成任务失败'
+      });
+      throw error;
+    }
+  },
+
+  // 生成单页描述
+  generatePageDescription: async (pageId: string) => {
+    const { currentProject, pageDescriptionGeneratingTasks } = get();
+    if (!currentProject) return;
+
+    // 如果该页面正在生成，不重复提交
+    if (pageDescriptionGeneratingTasks[pageId]) {
+      console.log(`[生成描述] 页面 ${pageId} 正在生成中，跳过重复请求`);
+      return;
+    }
+
+    set({ error: null });
+    
+    // 标记为生成中
+    set({
+      pageDescriptionGeneratingTasks: {
+        ...pageDescriptionGeneratingTasks,
+        [pageId]: true,
+      },
+    });
+
+    try {
+      // 立即同步一次项目数据，以更新页面状态
+      await get().syncProject();
+      
       // 传递 force_regenerate=true 以允许重新生成已有描述
       await api.generatePageDescription(currentProject.id, pageId, true);
+      
       // 刷新项目数据
       await get().syncProject();
     } catch (error: any) {
       set({ error: error.message || '生成描述失败' });
       throw error;
     } finally {
-      set({ isGlobalLoading: false });
+      // 清除生成状态
+      const { pageDescriptionGeneratingTasks: currentTasks } = get();
+      const newTasks = { ...currentTasks };
+      delete newTasks[pageId];
+      set({ pageDescriptionGeneratingTasks: newTasks });
     }
   },
 

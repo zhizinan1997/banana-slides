@@ -103,14 +103,24 @@ export const OutlineEditor: React.FC = () => {
       confirm(
         '已有大纲内容，重新生成将覆盖现有内容，确定继续吗？',
         async () => {
-          await generateOutline();
+          try {
+            await generateOutline();
+            // generateOutline 内部已经调用了 syncProject，这里不需要再次调用
+          } catch (error) {
+            console.error('生成大纲失败:', error);
+          }
         },
         { title: '确认重新生成', variant: 'warning' }
       );
       return;
     }
     
-    await generateOutline();
+    try {
+      await generateOutline();
+      // generateOutline 内部已经调用了 syncProject，这里不需要再次调用
+    } catch (error) {
+      console.error('生成大纲失败:', error);
+    }
   };
 
   const selectedPage = currentProject?.pages.find((p) => p.id === selectedPageId);
@@ -175,8 +185,24 @@ export const OutlineEditor: React.FC = () => {
       {/* 上下文栏 */}
       <div className="bg-banana-50 border-b border-banana-100 px-6 py-3 max-h-32 overflow-y-auto">
         <div className="flex items-start gap-2 text-sm">
-          <span className="font-medium text-gray-700 flex-shrink-0">📊 PPT构想:</span>
-          <span className="text-gray-900 break-words">{currentProject.idea_prompt}</span>
+          {currentProject.creation_type === 'idea' && (
+            <>
+              <span className="font-medium text-gray-700 flex-shrink-0">📊 PPT构想:</span>
+              <span className="text-gray-900 break-words">{currentProject.idea_prompt}</span>
+            </>
+          )}
+          {currentProject.creation_type === 'outline' && (
+            <>
+              <span className="font-medium text-gray-700 flex-shrink-0">📝 大纲:</span>
+              <span className="text-gray-900 break-words whitespace-pre-wrap">{currentProject.outline_text || currentProject.idea_prompt}</span>
+            </>
+          )}
+          {currentProject.creation_type === 'descriptions' && (
+            <>
+              <span className="font-medium text-gray-700 flex-shrink-0">📄 描述:</span>
+              <span className="text-gray-900 break-words whitespace-pre-wrap">{currentProject.description_text || currentProject.idea_prompt}</span>
+            </>
+          )}
         </div>
       </div>
 
@@ -194,12 +220,19 @@ export const OutlineEditor: React.FC = () => {
               >
                 添加页面
               </Button>
-              {currentProject.pages.length === 0 && (
+              {currentProject.pages.length === 0 ? (
                 <Button
                   variant="secondary"
                   onClick={handleGenerateOutline}
                 >
-                  自动生成大纲
+                  {currentProject.creation_type === 'outline' ? '解析大纲' : '自动生成大纲'}
+                </Button>
+              ) : (
+                <Button
+                  variant="secondary"
+                  onClick={handleGenerateOutline}
+                >
+                  {currentProject.creation_type === 'outline' ? '重新解析大纲' : '重新生成大纲'}
                 </Button>
               )}
             </div>
