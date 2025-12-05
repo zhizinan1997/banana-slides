@@ -667,14 +667,14 @@ export const SlidePreview: React.FC = () => {
           >
             更换模板
           </Button>
-          {/* <Button
+          <Button
             variant="ghost"
             size="sm"
             icon={<ImagePlus size={18} />}
             onClick={() => setIsMaterialModalOpen(true)}
           >
             素材生成
-          </Button> */}
+          </Button>
           <Button
             variant="secondary"
             size="sm"
