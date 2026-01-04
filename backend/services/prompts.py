@@ -743,41 +743,54 @@ def get_text_attribute_extraction_prompt(content_hint: str = "") -> str:
     """
     生成文字属性提取的 prompt
     
+    提取文字内容、颜色、公式等信息。模型输出的文字将替代 OCR 结果。
+    
     Args:
-        content_hint: 文字内容提示，如果提供则会在prompt中包含文字内容信息
+        content_hint: 文字内容提示（OCR 结果参考），如果提供则会在 prompt 中包含
     
     Returns:
         格式化后的 prompt 字符串
     """
-    prompt = """你的任务是分析这张图片中的文字样式，并返回JSON格式的结果。
+    prompt = """你的任务是精确识别这张图片中的文字内容和样式，返回JSON格式的结果。
 
 {content_hint}
 
-注意事项：
-- 一行文字可能包含多种不同颜色，请仔细观察每个字/词的实际颜色，将文字按颜色分割成片段。
-- 如果整行文字只有一种颜色，返回一个片段即可，text 为完整的原始文字内容
-- 如果有多种颜色，按照原始文字的顺序分割成多个片段，每个片段对应一种颜色
-- 相邻的相同颜色文字应合并为一个片段
-- 所有片段的 text 拼接起来应该等于原始文字内容
+## 核心任务
+请仔细观察图片，精确识别：
+1. **文字内容** - 输出你实际看到的文字符号。
+2. **颜色** - 每个字/词的实际颜色
+3. **空格** - 精确识别文本中空格的位置和数量
+4. **公式** - 如果是数学公式，输出 LaTeX 格式
 
-字段说明：
-- colored_segments: 带颜色的文字片段数组，每个片段包含：
-  - text: 该片段的文字内容
-  - color: 该片段的颜色，十六进制格式 "#RRGGBB"
+## 注意事项
+- **空格识别**：必须精确还原空格数量，多个连续空格要完整保留，不要合并或省略
+- **颜色分割**：一行文字可能有多种颜色，按颜色分割成片段，一般来说只有两种颜色。
+- **公式识别**：如果片段是数学公式，设置 is_latex=true 并用 LaTeX 格式输出
+- **相邻合并**：相同颜色的相邻普通文字应合并为一个片段
+
+## 输出格式
+- colored_segments: 文字片段数组，每个片段包含：
+  - text: 文字内容（公式时为 LaTeX 格式，如 "x^2"、"\\sum_{{i=1}}^n"）
+  - color: 颜色，十六进制格式 "#RRGGBB"
+  - is_latex: 布尔值，true 表示这是一个 LaTeX 公式片段（可选，默认 false）
 
 只返回JSON对象，不要包含任何其他文字。
-示例：
+示例输出：
 ```json
 {{
     "colored_segments": [
-        {{"text": "文字1", "color": "#FF0000"}},
-        {{"text": "文字2", "color": "#0000FF"}}
+        {{"text": "·  创新合成", "color": "#000000"}},
+        {{"text": "1827个任务环境", "color": "#26397A"}},
+        {{"text": "与", "color": "#000000"}},
+        {{"text": "8.5万提示词", "color": "#26397A"}},
+        {{"text": "突破数据瓶颈", "color": "#000000"}},
+        {{"text": "x^2 + y^2 = z^2", "color": "#FF0000", "is_latex": true}}
     ]
 }}
 ```
 """.format(content_hint=content_hint)
     
-    logger.debug(f"[get_text_attribute_extraction_prompt] Final prompt:\n{prompt}")
+    # logger.debug(f"[get_text_attribute_extraction_prompt] Final prompt:\n{prompt}")
     return prompt
 
 
@@ -851,7 +864,7 @@ def get_batch_text_attribute_extraction_prompt(text_elements_json: str) -> str:
 ```
 """
     
-    logger.debug(f"[get_batch_text_attribute_extraction_prompt] Final prompt:\n{prompt}")
+    # logger.debug(f"[get_batch_text_attribute_extraction_prompt] Final prompt:\n{prompt}")
     return prompt
 
 
@@ -909,4 +922,8 @@ def get_quality_enhancement_prompt(inpainted_regions: list = None) -> str:
 
 请输出修复后的高清ppt页面背景图片，不要遗漏修复任何一个被涂抹的区域。
 """
+#     prompt = f"""
+# 你是一位专业的图像修复专家。请你修复上传的图像，去除其中的涂抹痕迹，消除所有的模糊、噪点、伪影，输出处理后的高清图像，其他区域保持和原图**完全相同**，颜色、布局、线条、装饰需要完全一致.
+# {regions_info}
+# """
     return prompt
