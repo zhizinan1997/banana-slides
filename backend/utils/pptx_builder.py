@@ -428,18 +428,29 @@ class PPTXBuilder:
             # Clear default text
             paragraph.clear()
             
+            latex_count = 0
             for seg in text_style.colored_segments:
                 run = paragraph.add_run()
                 run.text = seg.text
                 run.font.size = Pt(font_size)
                 run.font.bold = is_bold
-                run.font.italic = is_italic
                 run.font.underline = is_underline
                 # Set segment-specific color
                 r, g, b = seg.color_rgb
                 run.font.color.rgb = RGBColor(r, g, b)
+                
+                # Handle LaTeX formula segments
+                if hasattr(seg, 'is_latex') and seg.is_latex:
+                    # For LaTeX formulas, use italic style as visual hint
+                    # TODO: In future, could render as actual equation using OMML
+                    run.font.italic = True
+                    latex_count += 1
+                    logger.debug(f"  LaTeX formula detected: '{seg.text}'")
+                else:
+                    run.font.italic = is_italic
             
-            style_info = f" | multi-color: {len(text_style.colored_segments)} segments"
+            latex_info = f", {latex_count} latex" if latex_count > 0 else ""
+            style_info = f" | multi-color: {len(text_style.colored_segments)} segments{latex_info}"
         else:
             # Single color text: use simple text assignment
             text_frame.text = actual_text

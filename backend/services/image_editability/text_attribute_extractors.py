@@ -22,23 +22,29 @@ class ColoredSegment:
     """
     带颜色的文字片段
     
-    用于表示一段文字及其颜色
+    用于表示一段文字及其颜色，支持 LaTeX 公式
     """
-    text: str  # 文字内容
+    text: str  # 文字内容（如果是公式则为 LaTeX 格式）
     color_rgb: Tuple[int, int, int] = (0, 0, 0)  # RGB颜色 (0-255)
+    is_latex: bool = False  # 是否为 LaTeX 公式
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
-        return {
+        result = {
             'text': self.text,
             'color': f"#{self.color_rgb[0]:02x}{self.color_rgb[1]:02x}{self.color_rgb[2]:02x}"
         }
+        if self.is_latex:
+            result['is_latex'] = True
+        return result
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ColoredSegment':
         """从字典创建实例"""
         text = data.get('text', '')
         color = data.get('color', '#000000')
+        is_latex = bool(data.get('is_latex', False))
+        
         # 解析颜色
         if isinstance(color, str):
             color = color.lstrip('#')
@@ -53,7 +59,7 @@ class ColoredSegment:
                 color_rgb = (0, 0, 0)
         else:
             color_rgb = (0, 0, 0)
-        return cls(text=text, color_rgb=color_rgb)
+        return cls(text=text, color_rgb=color_rgb, is_latex=is_latex)
 
 
 @dataclass
@@ -289,7 +295,7 @@ class CaptionModelTextAttributeExtractor(TextAttributeExtractor):
     
     def _call_vision_model(self, image: Image.Image, prompt: str, thinking_budget: int) -> Dict[str, Any]:
         """
-        调用视觉语言模型
+        调用视觉语言模型，使用 ai_service.generate_json_with_image（带重试机制）
         
         Args:
             image: PIL Image对象
@@ -300,7 +306,7 @@ class CaptionModelTextAttributeExtractor(TextAttributeExtractor):
             解析后的JSON结果
         """
         import tempfile
-        import json
+        import os
         
         # 保存临时图片文件
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
@@ -308,32 +314,25 @@ class CaptionModelTextAttributeExtractor(TextAttributeExtractor):
             image.save(tmp_path)
         
         try:
-            # 使用text_provider的generate_with_image方法（如果支持）
-            # 或者回退到generate_text方法
-            if hasattr(self.ai_service.text_provider, 'generate_with_image'):
-                response_text = self.ai_service.text_provider.generate_with_image(
-                    prompt=prompt,
-                    image_path=tmp_path,
-                    thinking_budget=thinking_budget
-                )
-            elif hasattr(self.ai_service.text_provider, 'generate_text_with_images'):
-                response_text = self.ai_service.text_provider.generate_text_with_images(
-                    prompt=prompt,
-                    images=[tmp_path],
-                    thinking_budget=thinking_budget
-                )
-            else:
-                # 回退方案：使用基础的generate_text
-                # 但这可能无法处理图片，所以会返回默认结果
-                logger.warning("text_provider不支持图片输入，使用默认结果")
-                return {}
-            
-            # 清理响应文本
-            cleaned_text = response_text.strip().strip("```json").strip("```").strip()
-            return json.loads(cleaned_text)
+            # 使用 ai_service.generate_json_with_image（带重试机制）
+            result = self.ai_service.generate_json_with_image(
+                prompt=prompt,
+                image_path=tmp_path,
+                thinking_budget=thinking_budget
+            )
+            return result if isinstance(result, dict) else {}
+        
+        except ValueError as e:
+            # text_provider 不支持图片输入
+            logger.warning(f"text_provider不支持图片输入: {e}")
+            return {}
+        
+        except Exception as e:
+            # JSON 解析失败（重试3次后仍失败）
+            logger.error(f"生成JSON失败（已重试3次）: {e}")
+            return {}
         
         finally:
-            import os
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
     
@@ -487,39 +486,33 @@ class CaptionModelTextAttributeExtractor(TextAttributeExtractor):
             # 构建 prompt
             prompt = get_batch_text_attribute_extraction_prompt(text_elements_json)
             
-            # 调用视觉语言模型
+            # 调用 ai_service.generate_json_with_image（带重试机制）
             try:
-                if hasattr(self.ai_service.text_provider, 'generate_with_image'):
-                    response_text = self.ai_service.text_provider.generate_with_image(
-                        prompt=prompt,
-                        image_path=tmp_path,
-                        thinking_budget=thinking_budget
-                    )
-                elif hasattr(self.ai_service.text_provider, 'generate_text_with_images'):
-                    response_text = self.ai_service.text_provider.generate_text_with_images(
-                        prompt=prompt,
-                        images=[tmp_path],
-                        thinking_budget=thinking_budget
-                    )
+                result = self.ai_service.generate_json_with_image(
+                    prompt=prompt,
+                    image_path=tmp_path,
+                    thinking_budget=thinking_budget
+                )
+                
+                # 确保结果是列表
+                if isinstance(result, list):
+                    result_list = result
+                elif isinstance(result, dict):
+                    # 如果返回的是字典，尝试获取列表
+                    result_list = result.get('results', [result])
                 else:
-                    logger.warning("text_provider不支持图片输入，无法使用批量提取")
-                    return {}
-                
-                # 清理响应文本并解析JSON
-                cleaned_text = response_text.strip()
-                # 移除可能的 markdown 代码块标记
-                if cleaned_text.startswith("```json"):
-                    cleaned_text = cleaned_text[7:]
-                if cleaned_text.startswith("```"):
-                    cleaned_text = cleaned_text[3:]
-                if cleaned_text.endswith("```"):
-                    cleaned_text = cleaned_text[:-3]
-                cleaned_text = cleaned_text.strip()
-                
-                result_list = json.loads(cleaned_text)
+                    result_list = []
                 
                 # 解析结果
                 return self._parse_batch_result(result_list, text_elements)
+            
+            except ValueError as e:
+                logger.warning(f"text_provider不支持图片输入: {e}")
+                return {}
+            
+            except Exception as e:
+                logger.error(f"批量提取JSON生成失败（已重试3次）: {e}")
+                return {}
                 
             finally:
                 if need_cleanup:
