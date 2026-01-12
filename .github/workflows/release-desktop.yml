@@ -61,25 +61,20 @@ jobs:
       - name: Sync version from Git tag
         run: |
           # 从 tag 中提取版本号 (v1.0.6 -> 1.0.6)
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "Building version: $VERSION"
+          $VERSION = $env:GITHUB_REF_NAME -replace '^v', ''
+          Write-Host "Building version: $VERSION"
           
           # 更新 desktop/package.json
-          cd desktop
-          $env:VERSION = "$VERSION"
-          $json = Get-Content package.json -Raw | ConvertFrom-Json
-          $json.version = $env:VERSION
-          $json | ConvertTo-Json -Depth 10 | Set-Content package.json
-          cd ..
+          $desktopJson = Get-Content desktop/package.json -Raw | ConvertFrom-Json
+          $desktopJson.version = $VERSION
+          $desktopJson | ConvertTo-Json -Depth 10 | Set-Content desktop/package.json -Encoding UTF8
           
           # 更新 frontend/package.json
-          cd frontend
-          $json = Get-Content package.json -Raw | ConvertFrom-Json
-          $json.version = $env:VERSION
-          $json | ConvertTo-Json -Depth 10 | Set-Content package.json
-          cd ..
+          $frontendJson = Get-Content frontend/package.json -Raw | ConvertFrom-Json
+          $frontendJson.version = $VERSION
+          $frontendJson | ConvertTo-Json -Depth 10 | Set-Content frontend/package.json -Encoding UTF8
           
-          echo "Version synced to $VERSION"
+          Write-Host "Version synced to $VERSION"
         shell: pwsh
 
       # 构建前端
