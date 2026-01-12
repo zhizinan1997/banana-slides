@@ -7,11 +7,15 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
+# SPECPATH 是 spec 文件所在的目录 (desktop/)
+# 后端代码在 ../backend/ 相对于 spec 文件
+BACKEND_DIR = os.path.abspath(os.path.join(SPECPATH, '..', 'backend'))
+
 # 收集各种依赖的数据文件
-# Note: paths are relative to backend/ since we run pyinstaller from there
+# Note: paths are relative to backend/ directory
 datas = [
-    ('fonts', 'fonts'),                    # 字体文件
-    ('migrations', 'migrations'),          # Alembic 迁移文件
+    (os.path.join(BACKEND_DIR, 'fonts'), 'fonts'),                    # 字体文件
+    (os.path.join(BACKEND_DIR, 'migrations'), 'migrations'),          # Alembic 迁移文件
 ]
 
 # 手动添加 setuptools 中的 Lorem ipsum.txt 文件（collect_data_files 对 setuptools 无效）
@@ -117,8 +121,8 @@ hiddenimports += collect_submodules('httpx')
 
 # 分析阶段
 a = Analysis(
-    ['app.py'],
-    pathex=[os.path.dirname(os.path.abspath('app.py'))],
+    [os.path.join(BACKEND_DIR, 'app.py')],      # 使用绝对路径
+    pathex=[BACKEND_DIR],                        # 后端代码目录
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
@@ -147,12 +151,15 @@ pyz = PYZ(
 )
 
 # 创建可执行文件
-# 根据平台选择图标文件
+# 根据平台选择图标文件（图标在 desktop/resources/ 目录）
 import platform
+icon_path_win = os.path.join(SPECPATH, 'resources', 'icon.ico')
+icon_path_mac = os.path.join(SPECPATH, 'resources', 'icon.icns')
+
 if platform.system() == 'Windows':
-    icon_file = 'resources/icon.ico' if os.path.exists('resources/icon.ico') else None
+    icon_file = icon_path_win if os.path.exists(icon_path_win) else None
 elif platform.system() == 'Darwin':
-    icon_file = 'resources/icon.icns' if os.path.exists('resources/icon.icns') else None
+    icon_file = icon_path_mac if os.path.exists(icon_path_mac) else None
 else:
     icon_file = None
 

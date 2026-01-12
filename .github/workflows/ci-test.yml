@@ -13,6 +13,9 @@ on:
     branches: [ main, develop ]
     paths-ignore:
       - '**/*.md'
+    # 不在 tag 推送时触发（release 有专门的工作流）
+    tags-ignore:
+      - 'v*'
   pull_request:
     types: [labeled]
     branches: [ main, develop ]

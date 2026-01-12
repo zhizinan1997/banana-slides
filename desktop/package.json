@@ -8,7 +8,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "build:backend": "cd ../backend && pyinstaller ../desktop/banana-slides.spec --clean --noconfirm",
+    "build:backend": "cd .. && pyinstaller desktop/banana-slides.spec --clean --noconfirm --distpath backend/dist --workpath backend/build",
     "build:frontend": "cd ../frontend && npm run build",
     "build:electron": "electron-builder --win",
     "build:all": "npm run build:frontend && npm run build:backend && npm run build:electron",

@@ -73,8 +73,10 @@ cd backend
 echo Installing Python dependencies...
 pip install -r requirements.txt 2>nul || uv sync
 
-:: 运行 PyInstaller（spec 文件在 desktop 目录）
-pyinstaller ../desktop/banana-slides.spec --clean --noconfirm
+cd ..
+
+:: 运行 PyInstaller（spec 文件使用绝对路径，可以从任意目录运行）
+pyinstaller desktop/banana-slides.spec --clean --noconfirm --distpath backend/dist --workpath backend/build
 if errorlevel 1 (
     echo [ERROR] Backend packaging failed!
     pause
@@ -82,8 +84,6 @@ if errorlevel 1 (
 )
 echo [OK] Backend packaging completed.
 echo.
-
-cd ..
 
 :: ============================================
 :: Step 3: 创建资源目录

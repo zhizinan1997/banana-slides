@@ -72,8 +72,7 @@ jobs:
         run: uv sync
 
       - name: Package backend with PyInstaller
-        working-directory: backend
-        run: pyinstaller ../desktop/banana-slides.spec --clean --noconfirm
+        run: pyinstaller desktop/banana-slides.spec --clean --noconfirm --distpath backend/dist --workpath backend/build
 
       # 复制构建产物到 desktop 目录
       - name: Copy build artifacts
@@ -194,8 +193,7 @@ jobs:
         run: uv sync
 
       - name: Package backend with PyInstaller
-        working-directory: backend
-        run: pyinstaller ../desktop/banana-slides.spec --clean --noconfirm
+        run: pyinstaller desktop/banana-slides.spec --clean --noconfirm --distpath backend/dist --workpath backend/build
 
       # 复制构建产物到 desktop 目录
       - name: Copy build artifacts
