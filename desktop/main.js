@@ -57,9 +57,15 @@ class BananaApp {
       log.info(`Backend started on port ${backendPort}`);
 
       // 关闭启动画面，创建主窗口
-      if (this.splashWindow) {
+      if (this.splashWindow && !this.splashWindow.isDestroyed()) {
         this.splashWindow.close();
-        this.splashWindow = null;
+      }
+      this.splashWindow = null;
+
+      // 检查应用是否仍在运行（用户可能在等待时关闭了窗口）
+      if (this.isQuitting) {
+        log.info("Application is quitting, skipping main window creation");
+        return;
       }
 
       this.createMainWindow(backendPort);

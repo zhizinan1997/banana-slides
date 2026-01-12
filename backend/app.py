@@ -139,37 +139,17 @@ def create_app():
     app.register_blueprint(settings_bp)
 
     with app.app_context():
-        # 自动执行数据库迁移（对于打包后的应用升级特别重要）
+        # 确保数据库表存在并更新结构
         try:
-            from flask_migrate import upgrade as alembic_upgrade
-            from alembic.config import Config as AlembicConfig
-            from alembic import command
-            import os as _os
+            db.create_all()
+            logging.info("Database tables created/verified successfully")
             
-            # 确定迁移目录路径
-            if _os.getenv('DATABASE_PATH'):
-                # 打包模式：migrations 目录在 resources/backend/migrations
-                migrations_dir = _os.path.join(_os.path.dirname(__file__), 'migrations')
-            else:
-                # 开发模式：migrations 目录在 backend/migrations
-                backend_dir = _os.path.dirname(_os.path.abspath(__file__))
-                migrations_dir = _os.path.join(backend_dir, 'migrations')
+            # 手动迁移：为现有表添加新列（SQLite 不支持 ALTER TABLE ADD COLUMN IF NOT EXISTS）
+            # 这比 Alembic 更可靠，因为在打包的 exe 中 Alembic 可能会卡住
+            _ensure_settings_columns(app)
             
-            if _os.path.exists(migrations_dir):
-                logging.info(f"Running database migrations from: {migrations_dir}")
-                alembic_upgrade()
-                logging.info("Database migrations completed successfully")
-            else:
-                logging.warning(f"Migrations directory not found: {migrations_dir}, skipping migrations")
-                # 回退到 create_all（仅创建不存在的表）
-                db.create_all()
         except Exception as e:
-            logging.warning(f"Database migration warning: {e}, falling back to create_all")
-            try:
-                db.create_all()
-                logging.info("Database tables created/verified successfully (fallback)")
-            except Exception as create_error:
-                logging.error(f"Database table creation failed: {create_error}")
+            logging.error(f"Database initialization failed: {e}")
         
         # Load settings from database and sync to app.config
         _load_settings_to_config(app)
@@ -209,6 +189,43 @@ def create_app():
         }
     
     return app
+
+
+def _ensure_settings_columns(app):
+    """
+    确保 settings 表有所有必要的列。
+    SQLite 不支持 IF NOT EXISTS 语法，所以需要先检查列是否存在。
+    这比 Alembic 在打包环境中更可靠。
+    """
+    from sqlalchemy import text, inspect
+    
+    # 需要确保存在的列及其定义
+    required_columns = {
+        'baidu_ocr_api_key': 'VARCHAR(500)',
+        'output_language': "VARCHAR(10) DEFAULT 'zh'",
+        'mineru_token': 'VARCHAR(500)',
+        'image_caption_model': 'VARCHAR(100)',
+        'mineru_api_base': 'VARCHAR(255)',
+        'text_model': 'VARCHAR(100)',
+        'image_model': 'VARCHAR(100)',
+    }
+    
+    try:
+        inspector = inspect(db.engine)
+        existing_columns = {col['name'] for col in inspector.get_columns('settings')}
+        
+        for column_name, column_type in required_columns.items():
+            if column_name not in existing_columns:
+                logging.info(f"Adding missing column to settings table: {column_name}")
+                try:
+                    db.session.execute(text(f"ALTER TABLE settings ADD COLUMN {column_name} {column_type}"))
+                    db.session.commit()
+                    logging.info(f"Successfully added column: {column_name}")
+                except Exception as col_error:
+                    db.session.rollback()
+                    logging.warning(f"Could not add column {column_name}: {col_error}")
+    except Exception as e:
+        logging.warning(f"Could not check/add settings columns: {e}")
 
 
 def _load_settings_to_config(app):
