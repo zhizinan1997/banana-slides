@@ -40,11 +40,14 @@ hiddenimports = [
     'flask_cors',
     'flask_sqlalchemy',
     'flask_migrate',
+    'dotenv',               # python-dotenv
+    'python-dotenv',
     
     # SQLAlchemy
     'sqlalchemy',
     'sqlalchemy.sql.default_comparator',
     'sqlalchemy.ext.hybrid',
+    'sqlite3',              # SQLite 数据库
     
     # AI SDK
     'google.generativeai',
@@ -81,6 +84,9 @@ hiddenimports = [
     'requests',
     'httpx',
     'aiohttp',
+    'urllib',
+    'urllib.parse',
+    'urllib.request',
     
     # Flask 相关
     'werkzeug',
@@ -98,11 +104,28 @@ hiddenimports = [
     'alembic',
     'alembic.config',
     
+    # 并发和异步
+    'concurrent',
+    'concurrent.futures',
+    'threading',
+    
     # 其他
     'tenacity',
-    'dotenv',
     'encodings',
     'codecs',
+    'json',
+    'uuid',
+    'tempfile',
+    'shutil',
+    'zipfile',
+    'io',
+    'base64',
+    'html',
+    're',
+    'textwrap',
+    'dataclasses',
+    'pathlib',
+    'traceback',
 ]
 
 # 收集子模块
@@ -118,6 +141,10 @@ hiddenimports += collect_submodules('reportlab')
 hiddenimports += collect_submodules('lxml')
 hiddenimports += collect_submodules('aiohttp')
 hiddenimports += collect_submodules('httpx')
+hiddenimports += collect_submodules('dotenv')
+hiddenimports += collect_submodules('PIL')
+hiddenimports += collect_submodules('pydantic')
+hiddenimports += collect_submodules('sqlalchemy')
 
 # 分析阶段
 a = Analysis(
