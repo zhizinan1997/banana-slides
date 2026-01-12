@@ -30,7 +30,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     platform: process.platform,
 
     // 判断是否在 Electron 环境中
-    isElectron: true
+    isElectron: true,
+
+    // 自动更新相关 API
+    getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+    checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+    openDownloadPage: (url) => ipcRenderer.invoke('open-download-page', url),
+    openReleasesPage: () => ipcRenderer.invoke('open-releases-page')
 });
 
 console.log('Preload script loaded');

@@ -5,6 +5,7 @@ const https = require("https");
 const http = require("http");
 const log = require("electron-log");
 const PythonManager = require("./python-manager");
+const autoUpdater = require("./auto-updater");
 
 // 配置日志
 log.transports.file.resolvePathFn = () =>
@@ -124,6 +125,30 @@ class BananaApp {
 
     // 获取后端端口
     ipcMain.handle('get-backend-port', () => backendPort);
+
+    // 获取应用版本
+    ipcMain.handle('get-app-version', () => {
+      const packageJson = require('./package.json');
+      return packageJson.version;
+    });
+
+    // 检查更新
+    ipcMain.handle('check-for-updates', async () => {
+      const packageJson = require('./package.json');
+      const currentVersion = packageJson.version;
+      return await autoUpdater.checkForUpdates(currentVersion);
+    });
+
+    // 打开下载页面
+    ipcMain.handle('open-download-page', (event, url) => {
+      return autoUpdater.openDownloadPage(url);
+    });
+
+    // 打开 GitHub Releases 页面
+    ipcMain.handle('open-releases-page', () => {
+      autoUpdater.openReleasesPage();
+      return true;
+    });
   }
 
   /**

@@ -8,6 +8,7 @@ import { SlidePreview } from './pages/SlidePreview';
 import { SettingsPage } from './pages/Settings';
 import { useProjectStore } from './store/useProjectStore';
 import { useToast, GithubLink } from './components/shared';
+import { UpdateChecker } from './components/shared/UpdateChecker';
 
 function App() {
   const { currentProject, syncProject, error, setError } = useProjectStore();
@@ -42,6 +43,7 @@ function App() {
       </Routes>
       <ToastContainer />
       <GithubLink />
+      <UpdateChecker />
     </HashRouter>
   );
 }

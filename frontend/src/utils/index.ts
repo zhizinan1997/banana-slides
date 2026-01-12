@@ -85,6 +85,21 @@ declare global {
       downloadFile: (url: string, filename: string) => Promise<{ success: boolean; canceled?: boolean; path?: string; error?: string }>;
       getBackendPort: () => string;
       platform: string;
+      // 自动更新 API
+      getAppVersion: () => Promise<string>;
+      checkForUpdates: () => Promise<{
+        hasUpdate: boolean;
+        currentVersion?: string;
+        latestVersion?: string;
+        releaseNotes?: string;
+        releaseName?: string;
+        publishedAt?: string;
+        downloadUrl?: string;
+        releasePageUrl?: string;
+        error?: string;
+      }>;
+      openDownloadPage: (url: string) => Promise<boolean>;
+      openReleasesPage: () => Promise<boolean>;
     };
   }
 }
